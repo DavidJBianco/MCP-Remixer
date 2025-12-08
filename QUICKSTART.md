@@ -5,7 +5,12 @@ Get mcp-remixer running in 5 minutes.
 ## 1. Install
 
 ```bash
-uv add mcp-remixer
+# Clone the repository
+git clone https://github.com/DavidJBianco/MCP-Remixer.git
+cd MCP-Remixer
+
+# Install dependencies
+uv sync
 ```
 
 ## 2. Create config file
@@ -107,11 +112,13 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "my-remix": {
       "command": "uv",
-      "args": ["run", "mcp-remixer", "--config", "/absolute/path/to/mcp-remixer.yaml"]
+      "args": ["run", "--directory", "/path/to/MCP-Remixer", "mcp-remixer", "--config", "/absolute/path/to/mcp-remixer.yaml"]
     }
   }
 }
 ```
+
+Replace `/path/to/MCP-Remixer` with the actual path where you cloned the repository.
 
 Restart Claude Desktop.
 

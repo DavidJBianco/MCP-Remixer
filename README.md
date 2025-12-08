@@ -14,7 +14,12 @@ A proxy for MCP servers that lets you add custom tools, hide existing ones, and 
 ## Installation
 
 ```bash
-uv add mcp-remixer
+# Clone the repository
+git clone https://github.com/DavidJBianco/MCP-Remixer.git
+cd MCP-Remixer
+
+# Install dependencies
+uv sync
 ```
 
 ## Quick Example
@@ -65,7 +70,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "my-remix": {
       "command": "uv",
-      "args": ["run", "mcp-remixer", "--config", "/path/to/mcp-remixer.yaml"]
+      "args": ["run", "--directory", "/path/to/MCP-Remixer", "mcp-remixer", "--config", "/path/to/mcp-remixer.yaml"]
     }
   }
 }
