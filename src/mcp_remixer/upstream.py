@@ -1,0 +1,267 @@
+"""Upstream server connection management."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol
+
+from mcp import ClientSession
+from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
+from mcp.types import CallToolResult, Tool
+
+from mcp_remixer.config import SSEUpstreamConfig, StdioUpstreamConfig, UpstreamConfig
+from mcp_remixer.exceptions import ToolHiddenError, ToolNotFoundError, UpstreamError
+
+if TYPE_CHECKING:
+    from mcp_remixer.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
+
+
+class UpstreamClient(Protocol):
+    """Interface for calling upstream tools from custom tools.
+
+    This is injected into custom tool functions that declare an
+    `upstream: UpstreamClient` parameter.
+    """
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
+        """Call a tool by name.
+
+        Args:
+            name: Tool name (can be prefixed like "filesystem.read_file" or plain)
+            arguments: Tool arguments
+
+        Returns:
+            The tool call result
+
+        Raises:
+            ToolNotFoundError: If the tool doesn't exist
+            ToolHiddenError: If the tool is hidden
+            UpstreamError: If the upstream call fails
+        """
+        ...
+
+    async def list_tools(self) -> list[Tool]:
+        """List all available tools (excluding hidden ones)."""
+        ...
+
+
+@dataclass
+class UpstreamConnection:
+    """Represents a connection to a single upstream MCP server."""
+
+    name: str
+    config: UpstreamConfig
+    session: ClientSession | None = None
+    tools: list[Tool] | None = None
+    _read_stream: Any = None
+    _write_stream: Any = None
+    _cm: Any = None  # Context manager for the connection
+
+    @property
+    def connected(self) -> bool:
+        """Check if the connection is established."""
+        return self.session is not None
+
+
+class UpstreamManager:
+    """Manages connections to upstream MCP servers."""
+
+    def __init__(self) -> None:
+        self._connections: dict[str, UpstreamConnection] = {}
+        self._registry: ToolRegistry | None = None
+
+    def set_registry(self, registry: ToolRegistry) -> None:
+        """Set the tool registry for name resolution."""
+        self._registry = registry
+
+    @property
+    def connections(self) -> dict[str, UpstreamConnection]:
+        """Get all connections."""
+        return self._connections
+
+    async def connect_upstream(self, config: UpstreamConfig) -> UpstreamConnection:
+        """Connect to a single upstream server.
+
+        Args:
+            config: Upstream configuration
+
+        Returns:
+            UpstreamConnection object
+
+        Raises:
+            UpstreamError: If connection fails
+        """
+        conn = UpstreamConnection(name=config.name, config=config)
+
+        try:
+            if isinstance(config, StdioUpstreamConfig):
+                await self._connect_stdio(conn, config)
+            elif isinstance(config, SSEUpstreamConfig):
+                await self._connect_sse(conn, config)
+            else:
+                raise UpstreamError(f"Unknown transport type for upstream '{config.name}'")
+
+            # Fetch tools from the upstream
+            if conn.session:
+                result = await conn.session.list_tools()
+                conn.tools = list(result.tools)
+                logger.info(
+                    f"Connected to upstream '{config.name}' with {len(conn.tools)} tools"
+                )
+
+        except Exception as e:
+            if config.required:
+                raise UpstreamError(f"Failed to connect to required upstream '{config.name}': {e}")
+            logger.warning(f"Failed to connect to optional upstream '{config.name}': {e}")
+            conn.session = None
+            conn.tools = []
+
+        self._connections[config.name] = conn
+        return conn
+
+    async def _connect_stdio(
+        self, conn: UpstreamConnection, config: StdioUpstreamConfig
+    ) -> None:
+        """Establish a stdio connection to an upstream server."""
+        # Merge environment
+        env = os.environ.copy()
+        env.update(config.env)
+
+        # Create the stdio client
+        # The stdio_client returns an async context manager that yields (read, write) streams
+        conn._cm = stdio_client(config.command, config.args, env=env)
+        streams = await conn._cm.__aenter__()
+        conn._read_stream, conn._write_stream = streams
+
+        # Create session
+        session_cm = ClientSession(conn._read_stream, conn._write_stream)
+        conn.session = await session_cm.__aenter__()
+
+        # Initialize the session
+        await conn.session.initialize()
+
+    async def _connect_sse(self, conn: UpstreamConnection, config: SSEUpstreamConfig) -> None:
+        """Establish an SSE connection to an upstream server."""
+        # Create the SSE client
+        conn._cm = sse_client(config.url, headers=config.headers)
+        streams = await conn._cm.__aenter__()
+        conn._read_stream, conn._write_stream = streams
+
+        # Create session
+        session_cm = ClientSession(conn._read_stream, conn._write_stream)
+        conn.session = await session_cm.__aenter__()
+
+        # Initialize the session
+        await conn.session.initialize()
+
+    async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
+        """Connect to all configured upstreams.
+
+        Args:
+            configs: Dictionary of upstream configurations
+
+        Raises:
+            UpstreamError: If a required upstream fails to connect
+        """
+        # Connect to all upstreams concurrently
+        tasks = [self.connect_upstream(config) for config in configs.values()]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Check if all required upstreams connected
+        for name, conn in self._connections.items():
+            if conn.config.required and not conn.connected:
+                raise UpstreamError(f"Required upstream '{name}' failed to connect")
+
+    async def disconnect_all(self) -> None:
+        """Disconnect from all upstream servers."""
+        for conn in self._connections.values():
+            try:
+                if conn.session:
+                    # Close the session
+                    await conn.session.__aexit__(None, None, None)
+                if conn._cm:
+                    await conn._cm.__aexit__(None, None, None)
+            except Exception as e:
+                logger.warning(f"Error disconnecting from '{conn.name}': {e}")
+
+        self._connections.clear()
+
+    def get_all_upstream_tools(self) -> list[tuple[str, Tool]]:
+        """Get all tools from all connected upstreams.
+
+        Returns:
+            List of (upstream_name, tool) tuples
+        """
+        all_tools = []
+        for name, conn in self._connections.items():
+            if conn.tools:
+                for tool in conn.tools:
+                    all_tools.append((name, tool))
+        return all_tools
+
+    async def call_upstream_tool(
+        self, upstream_name: str, tool_name: str, arguments: dict[str, Any]
+    ) -> CallToolResult:
+        """Call a tool on a specific upstream.
+
+        Args:
+            upstream_name: Name of the upstream
+            tool_name: Name of the tool (original name, not prefixed)
+            arguments: Tool arguments
+
+        Returns:
+            Tool call result
+
+        Raises:
+            UpstreamError: If the call fails
+            ToolNotFoundError: If the upstream doesn't exist
+        """
+        conn = self._connections.get(upstream_name)
+        if not conn or not conn.session:
+            raise ToolNotFoundError(f"Upstream '{upstream_name}' not found or not connected")
+
+        try:
+            result = await conn.session.call_tool(tool_name, arguments)
+            return result
+        except Exception as e:
+            raise UpstreamError(f"Error calling tool '{tool_name}' on '{upstream_name}': {e}")
+
+
+class UpstreamClientImpl:
+    """Implementation of UpstreamClient that routes calls through the registry."""
+
+    def __init__(self, registry: ToolRegistry, manager: UpstreamManager) -> None:
+        self._registry = registry
+        self._manager = manager
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
+        """Call a tool by its exposed name."""
+        return await self._registry.call_tool(name, arguments)
+
+    async def list_tools(self) -> list[Tool]:
+        """List all available tools."""
+        return self._registry.list_tools()
+
+
+@asynccontextmanager
+async def create_upstream_manager(configs: dict[str, UpstreamConfig]):
+    """Create and manage upstream connections.
+
+    Usage:
+        async with create_upstream_manager(configs) as manager:
+            # Use manager
+            ...
+    """
+    manager = UpstreamManager()
+    try:
+        await manager.connect_all(configs)
+        yield manager
+    finally:
+        await manager.disconnect_all()

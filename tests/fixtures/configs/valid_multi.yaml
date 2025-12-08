@@ -1,0 +1,32 @@
+upstreams:
+  filesystem:
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp"
+    required: true
+    tool_prefix: "fs_"
+
+  git:
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-git"
+    required: false
+
+  remote:
+    transport: sse
+    url: http://localhost:8080/mcp
+    headers:
+      Authorization: Bearer token
+
+hidden:
+  tools:
+    - dangerous_tool
+    - filesystem.internal_op
+
+custom_tools:
+  - ./tools/custom.py
