@@ -1,0 +1,17 @@
+# Demo configuration for mcp-remixer
+#
+# This example proxies the MCP filesystem server, hides the write_file tool,
+# and adds custom tools.
+
+upstreams:
+  filesystem:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+hidden:
+  tools:
+    - "write_file"  # Hide this tool - clients won't see or be able to call it
+
+custom_tools:
+  - "./tools/custom_tools.py"
