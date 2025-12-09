@@ -341,7 +341,7 @@ async def say_hello(name: str) -> str:
                     url="https://api.example.com/mcp",
                     headers={"Authorization": "Bearer test-token"},
                     timeout=30.0,
-                    sse_read_timeout=300.0,
+                    read_timeout=300.0,
                 )
             },
             hidden=HiddenConfig(tools=[]),
@@ -368,6 +368,7 @@ async def say_hello(name: str) -> str:
             await server.initialize()
 
             # Verify streamablehttp_client was called with correct args
+            # (read_timeout maps to sse_read_timeout in the SDK)
             mock_http_client.assert_called_once_with(
                 "https://api.example.com/mcp",
                 headers={"Authorization": "Bearer test-token"},

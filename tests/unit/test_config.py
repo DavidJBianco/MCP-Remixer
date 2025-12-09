@@ -341,7 +341,7 @@ upstreams:
         assert upstream.headers == {"Authorization": "Bearer token"}
         # Check defaults
         assert upstream.timeout == 30.0
-        assert upstream.sse_read_timeout == 300.0
+        assert upstream.read_timeout == 300.0
 
     def test_load_http_with_custom_timeouts(self, tmp_path: Path):
         """Loads HTTP config with custom timeout values."""
@@ -351,7 +351,7 @@ upstreams:
     transport: http
     url: https://api.example.com/mcp
     timeout: 60
-    sse_read_timeout: 600
+    read_timeout: 600
 """
         config_path = tmp_path / "config.yaml"
         config_path.write_text(config_content)
@@ -361,7 +361,7 @@ upstreams:
         upstream = config.upstreams["cloud"]
         assert isinstance(upstream, HTTPUpstreamConfig)
         assert upstream.timeout == 60.0
-        assert upstream.sse_read_timeout == 600.0
+        assert upstream.read_timeout == 600.0
 
     def test_missing_url_for_http_raises_error(self, tmp_path: Path):
         """Raises error when http transport missing URL."""

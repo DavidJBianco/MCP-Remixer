@@ -33,7 +33,7 @@ upstreams:
     headers:
       Authorization: "Bearer ${CLOUD_API_TOKEN}"
     timeout: 60
-    sse_read_timeout: 600
+    read_timeout: 600
     required: true
     tool_prefix: "cloud_"
 
@@ -125,7 +125,7 @@ upstreams:
     headers:
       Authorization: "Bearer ${API_TOKEN}"
     timeout: 30
-    sse_read_timeout: 300
+    read_timeout: 300
     required: true
     tool_prefix: "cloud_"
 ```
@@ -136,7 +136,7 @@ upstreams:
 | `url` | string | Yes | - | HTTP/HTTPS endpoint URL |
 | `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
 | `timeout` | number | No | `30` | HTTP operation timeout in seconds |
-| `sse_read_timeout` | number | No | `300` | SSE read timeout in seconds (how long to wait for events) |
+| `read_timeout` | number | No | `300` | Read timeout in seconds (how long to wait for server responses) |
 | `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
 | `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
 

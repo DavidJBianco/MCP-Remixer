@@ -45,7 +45,7 @@ class HTTPUpstreamConfig:
     url: str
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
-    sse_read_timeout: float = 300.0
+    read_timeout: float = 300.0
     required: bool = False
     tool_prefix: str = ""
 
@@ -152,7 +152,7 @@ def _parse_upstream(name: str, data: dict) -> UpstreamConfig:
             url=url,
             headers=data.get("headers", {}),
             timeout=float(data.get("timeout", 30.0)),
-            sse_read_timeout=float(data.get("sse_read_timeout", 300.0)),
+            read_timeout=float(data.get("read_timeout", 300.0)),
             required=data.get("required", False),
             tool_prefix=data.get("tool_prefix", ""),
         )

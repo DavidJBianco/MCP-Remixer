@@ -184,7 +184,7 @@ class UpstreamManager:
             config.url,
             headers=config.headers,
             timeout=config.timeout,
-            sse_read_timeout=config.sse_read_timeout,
+            sse_read_timeout=config.read_timeout,
         )
         streams = await conn._cm.__aenter__()
         # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
