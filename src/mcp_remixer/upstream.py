@@ -12,9 +12,15 @@ from typing import TYPE_CHECKING, Any, Protocol
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import CallToolResult, Tool
 
-from mcp_remixer.config import SSEUpstreamConfig, StdioUpstreamConfig, UpstreamConfig
+from mcp_remixer.config import (
+    SSEUpstreamConfig,
+    StdioUpstreamConfig,
+    StreamableHTTPUpstreamConfig,
+    UpstreamConfig,
+)
 from mcp_remixer.exceptions import ToolHiddenError, ToolNotFoundError, UpstreamError
 
 if TYPE_CHECKING:
@@ -105,6 +111,8 @@ class UpstreamManager:
                 await self._connect_stdio(conn, config)
             elif isinstance(config, SSEUpstreamConfig):
                 await self._connect_sse(conn, config)
+            elif isinstance(config, StreamableHTTPUpstreamConfig):
+                await self._connect_streamable_http(conn, config)
             else:
                 raise UpstreamError(f"Unknown transport type for upstream '{config.name}'")
 
@@ -159,6 +167,28 @@ class UpstreamManager:
         conn._cm = sse_client(config.url, headers=config.headers)
         streams = await conn._cm.__aenter__()
         conn._read_stream, conn._write_stream = streams
+
+        # Create session
+        session_cm = ClientSession(conn._read_stream, conn._write_stream)
+        conn.session = await session_cm.__aenter__()
+
+        # Initialize the session
+        await conn.session.initialize()
+
+    async def _connect_streamable_http(
+        self, conn: UpstreamConnection, config: StreamableHTTPUpstreamConfig
+    ) -> None:
+        """Establish a Streamable HTTP connection to an upstream server."""
+        # Create the Streamable HTTP client
+        conn._cm = streamablehttp_client(
+            config.url,
+            headers=config.headers,
+            timeout=config.timeout,
+            sse_read_timeout=config.sse_read_timeout,
+        )
+        streams = await conn._cm.__aenter__()
+        # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
+        conn._read_stream, conn._write_stream, _ = streams
 
         # Create session
         session_cm = ClientSession(conn._read_stream, conn._write_stream)

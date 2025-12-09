@@ -36,7 +36,21 @@ class SSEUpstreamConfig:
     tool_prefix: str = ""
 
 
-UpstreamConfig = StdioUpstreamConfig | SSEUpstreamConfig
+@dataclass
+class StreamableHTTPUpstreamConfig:
+    """Configuration for a Streamable HTTP-based upstream server."""
+
+    name: str
+    transport: str  # "streamable_http"
+    url: str
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout: float = 30.0
+    sse_read_timeout: float = 300.0
+    required: bool = False
+    tool_prefix: str = ""
+
+
+UpstreamConfig = StdioUpstreamConfig | SSEUpstreamConfig | StreamableHTTPUpstreamConfig
 
 
 @dataclass
@@ -123,6 +137,22 @@ def _parse_upstream(name: str, data: dict) -> UpstreamConfig:
             transport="sse",
             url=url,
             headers=data.get("headers", {}),
+            required=data.get("required", False),
+            tool_prefix=data.get("tool_prefix", ""),
+        )
+
+    elif transport == "streamable_http":
+        url = data.get("url")
+        if not url:
+            raise ConfigError(f"Upstream '{name}' with streamable_http transport missing 'url'")
+
+        return StreamableHTTPUpstreamConfig(
+            name=name,
+            transport="streamable_http",
+            url=url,
+            headers=data.get("headers", {}),
+            timeout=float(data.get("timeout", 30.0)),
+            sse_read_timeout=float(data.get("sse_read_timeout", 300.0)),
             required=data.get("required", False),
             tool_prefix=data.get("tool_prefix", ""),
         )

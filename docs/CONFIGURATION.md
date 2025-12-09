@@ -27,6 +27,16 @@ upstreams:
     headers:
       Authorization: "Bearer ${API_TOKEN}"
 
+  cloud_service:
+    transport: streamable_http
+    url: "https://api.example.com/mcp"
+    headers:
+      Authorization: "Bearer ${CLOUD_API_TOKEN}"
+    timeout: 60
+    sse_read_timeout: 600
+    required: true
+    tool_prefix: "cloud_"
+
 hidden:
   tools:
     - "filesystem.write_file"
@@ -100,6 +110,33 @@ upstreams:
 | `transport` | string | Yes | - | Must be `"sse"` |
 | `url` | string | Yes | - | SSE endpoint URL |
 | `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
+| `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
+| `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
+
+### Streamable HTTP Transport
+
+For remote MCP servers using the Streamable HTTP protocol. This is the modern HTTP-based transport for MCP that supports bidirectional streaming over HTTP.
+
+```yaml
+upstreams:
+  cloud_api:
+    transport: streamable_http
+    url: "https://api.example.com/mcp"
+    headers:
+      Authorization: "Bearer ${API_TOKEN}"
+    timeout: 30
+    sse_read_timeout: 300
+    required: true
+    tool_prefix: "cloud_"
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `transport` | string | Yes | - | Must be `"streamable_http"` |
+| `url` | string | Yes | - | HTTP/HTTPS endpoint URL |
+| `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
+| `timeout` | number | No | `30` | HTTP operation timeout in seconds |
+| `sse_read_timeout` | number | No | `300` | SSE read timeout in seconds (how long to wait for events) |
 | `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
 | `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
 

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import Tool, ListToolsResult
 
-from mcp_remixer.config import Config, HiddenConfig, StdioUpstreamConfig
+from mcp_remixer.config import Config, HiddenConfig, StdioUpstreamConfig, StreamableHTTPUpstreamConfig
 from mcp_remixer.server import MCPRemixerServer
 from mcp_remixer.upstream import UpstreamManager
 
@@ -325,3 +325,63 @@ async def say_hello(name: str) -> str:
             from mcp_remixer.exceptions import UpstreamError
             with pytest.raises(UpstreamError):
                 await server.initialize()
+
+    @pytest.mark.asyncio
+    async def test_streamable_http_upstream_tools_are_registered(self, mock_tools: list[Tool]):
+        """Verifies that tools from a Streamable HTTP upstream are registered."""
+        mock_session = AsyncMock()
+        mock_session.list_tools.return_value = ListToolsResult(tools=mock_tools)
+        mock_session.initialize = AsyncMock()
+
+        config = Config(
+            upstreams={
+                "cloud_api": StreamableHTTPUpstreamConfig(
+                    name="cloud_api",
+                    transport="streamable_http",
+                    url="https://api.example.com/mcp",
+                    headers={"Authorization": "Bearer test-token"},
+                    timeout=30.0,
+                    sse_read_timeout=300.0,
+                )
+            },
+            hidden=HiddenConfig(tools=[]),
+            custom_tools=[],
+            config_dir=Path("."),
+        )
+
+        with patch("mcp_remixer.upstream.streamablehttp_client") as mock_http_client, \
+             patch("mcp_remixer.upstream.ClientSession") as mock_client_session:
+
+            # Set up the mock context managers
+            mock_cm = AsyncMock()
+            # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
+            mock_cm.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock(), lambda: None))
+            mock_cm.__aexit__ = AsyncMock()
+            mock_http_client.return_value = mock_cm
+
+            mock_session_cm = AsyncMock()
+            mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session_cm.__aexit__ = AsyncMock()
+            mock_client_session.return_value = mock_session_cm
+
+            server = MCPRemixerServer(config)
+            await server.initialize()
+
+            # Verify streamablehttp_client was called with correct args
+            mock_http_client.assert_called_once_with(
+                "https://api.example.com/mcp",
+                headers={"Authorization": "Bearer test-token"},
+                timeout=30.0,
+                sse_read_timeout=300.0,
+            )
+
+            # Verify tools were registered
+            tools = server._registry.list_tools()
+            tool_names = [t.name for t in tools]
+
+            assert "read_file" in tool_names
+            assert "write_file" in tool_names
+            assert "list_directory" in tool_names
+            assert len(tools) == 3
+
+            await server.shutdown()
