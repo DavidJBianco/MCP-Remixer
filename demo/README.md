@@ -21,9 +21,19 @@ A simple demonstration of mcp-remixer features.
 From the repository root:
 
 ```bash
-# Run the proxy with the demo config
+# Run the remixed proxy (with hidden tools and custom tools)
 uv run mcp-remixer --config demo/mcp-remixer.yaml
+
+# Or run the passthrough proxy (no modifications, for comparison)
+uv run mcp-remixer --config demo/mcp-remixer-passthrough.yaml
 ```
+
+### Config Files
+
+| Config | Description |
+|--------|-------------|
+| `mcp-remixer.yaml` | Hides `write_file`, adds custom `remixer_*` tools |
+| `mcp-remixer-passthrough.yaml` | Plain proxy with no modifications (for comparison) |
 
 ## Using with Claude Desktop
 
