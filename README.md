@@ -91,9 +91,9 @@ Add to your `claude_desktop_config.json`:
 │  • Register custom tools                                     │
 │  • Route tool calls to correct destination                   │
 └─────────────────────────────────────────────────────────────┘
-        │ stdio               │ stdio               │ sse
+        │ stdio               │ sse/http            │ http
 ┌───────▼───────┐  ┌─────────▼────────┐  ┌────────▼────────┐
-│  filesystem   │  │       git        │  │    remote_db    │
+│  filesystem   │  │    remote_api    │  │  cloud_service  │
 │    server     │  │     server       │  │     server      │
 └───────────────┘  └──────────────────┘  └─────────────────┘
 ```
