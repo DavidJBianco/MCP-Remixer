@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from mcp import ClientSession
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, Tool
@@ -134,9 +134,15 @@ class UpstreamManager:
         env = os.environ.copy()
         env.update(config.env)
 
+        # Create server parameters
+        server_params = StdioServerParameters(
+            command=config.command,
+            args=config.args,
+            env=env,
+        )
+
         # Create the stdio client
-        # The stdio_client returns an async context manager that yields (read, write) streams
-        conn._cm = stdio_client(config.command, config.args, env=env)
+        conn._cm = stdio_client(server_params)
         streams = await conn._cm.__aenter__()
         conn._read_stream, conn._write_stream = streams
 
