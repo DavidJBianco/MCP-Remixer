@@ -5,6 +5,7 @@ A proxy for MCP servers that lets you add custom tools, hide existing ones, and 
 ## Features
 
 - **Aggregate multiple MCP servers** - Combine filesystem, git, database servers into one
+- **Automatic tool name resolution** - Handles conflicting tool names across upstreams (e.g., `server_a.search` vs `server_b.search`)
 - **Add custom tools** - Write Python functions that become MCP tools
 - **Hide tools** - Filter out tools you don't want exposed
 - **Chain tools** - Custom tools can call upstream tools

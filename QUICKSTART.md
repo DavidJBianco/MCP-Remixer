@@ -103,7 +103,56 @@ custom_tools:
   - "./tools/hello.py"
 ```
 
-## 7. Use with Claude Desktop
+## 7. Understand tool naming
+
+When you aggregate multiple upstreams, tool names are handled automatically:
+
+**No conflicts (unique names):** Tools keep their original names.
+
+```yaml
+upstreams:
+  filesystem:  # has: read_file, write_file
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  git:  # has: git_status, git_commit
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-git"]
+```
+
+Result: `read_file`, `write_file`, `git_status`, `git_commit` (no prefixes needed)
+
+**With conflicts (same tool name):** Tools are auto-prefixed with the upstream name.
+
+```yaml
+upstreams:
+  slack:  # has: search
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@anthropic/server-slack"]
+  github:  # also has: search
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@anthropic/server-github"]
+```
+
+Result: `slack.search` and `github.search` (auto-prefixed to avoid collision)
+
+**Explicit prefixes:** Use `tool_prefix` to always add a prefix regardless of collisions.
+
+```yaml
+upstreams:
+  filesystem:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    tool_prefix: "fs_"  # read_file becomes fs_read_file
+```
+
+See the [Configuration Reference](docs/CONFIGURATION.md#tool-name-resolution) for full details.
+
+## 8. Use with Claude Desktop
 
 Add to your `claude_desktop_config.json`:
 
@@ -122,7 +171,7 @@ Replace `/path/to/MCP-Remixer` with the actual path where you cloned the reposit
 
 Restart Claude Desktop.
 
-## 8. Chain tools together
+## 9. Chain tools together
 
 Create a custom tool that calls an upstream tool:
 
