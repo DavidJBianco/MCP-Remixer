@@ -1,0 +1,18 @@
+# Passthrough configuration for mcp-remixer
+#
+# This config simply proxies the MCP filesystem server with no modifications.
+# Use this to compare against mcp-remixer.yaml to see the effect of hiding
+# tools and adding custom ones.
+
+upstreams:
+  filesystem:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+# No hidden tools
+hidden:
+  tools: []
+
+# No custom tools
+custom_tools: []

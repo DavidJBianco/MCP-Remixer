@@ -1,0 +1,13 @@
+upstreams:
+  filesystem:
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp"
+
+hidden:
+  tools: []
+
+custom_tools: []
