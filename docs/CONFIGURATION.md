@@ -194,29 +194,62 @@ custom_tools:
 
 ## Tool Name Resolution
 
-When tools from multiple upstreams have the same name:
+When aggregating tools from multiple upstreams, mcp-remixer automatically resolves naming conflicts to ensure each tool has a unique name.
 
-1. **Explicit prefix wins** - If `tool_prefix` is set, it's always applied
-2. **Auto-prefix on collision** - Conflicting names get `upstream_name.` prefix
-3. **Flat if unique** - No prefix if the name is unique across all upstreams
+### Resolution Rules
 
-### Example with collision:
+Tool names are resolved in this order:
+
+| Scenario | Result |
+|----------|--------|
+| Tool name is unique across all upstreams | Original name (e.g., `read_file`) |
+| `tool_prefix` is configured | Prefix applied (e.g., `fs_read_file`) |
+| Name collision between upstreams | Auto-prefix with upstream name (e.g., `server_a.search`) |
+| Upstream tool collides with custom tool | Custom tool keeps name, upstream tools get prefixed |
+
+### Example: No collision (unique names)
 
 ```yaml
 upstreams:
-  server_a:
+  filesystem:  # provides: read_file, write_file, list_directory
     transport: stdio
-    command: "..."
-    # has "search" tool
-  server_b:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+  git:  # provides: git_status, git_commit, git_log
     transport: stdio
-    command: "..."
-    # also has "search" tool
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-git"]
 ```
 
-Result: Tools exposed as `server_a.search` and `server_b.search`
+**Exposed tools:** `read_file`, `write_file`, `list_directory`, `git_status`, `git_commit`, `git_log`
 
-### Example with explicit prefix:
+All names are unique, so no prefixing is needed.
+
+### Example: Auto-prefix on collision
+
+```yaml
+upstreams:
+  slack:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@anthropic/server-slack"]
+    # provides: search, list_channels, post_message
+
+  github:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@anthropic/server-github"]
+    # also provides: search, list_repos, create_issue
+```
+
+**Exposed tools:**
+- `slack.search`, `list_channels`, `post_message`
+- `github.search`, `list_repos`, `create_issue`
+
+Only the conflicting `search` tool gets prefixed with the upstream name. Non-conflicting tools keep their original names.
+
+### Example: Explicit prefix
 
 ```yaml
 upstreams:
@@ -225,12 +258,54 @@ upstreams:
     command: "..."
     tool_prefix: "a_"
     # has "search" tool → exposed as "a_search"
+
   server_b:
     transport: stdio
     command: "..."
     tool_prefix: "b_"
     # has "search" tool → exposed as "b_search"
 ```
+
+**Exposed tools:** `a_search`, `b_search`
+
+With explicit `tool_prefix`, the prefix is always applied regardless of collisions.
+
+### Example: Custom tool takes priority
+
+```yaml
+upstreams:
+  filesystem:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    # provides: read_file, write_file
+
+custom_tools:
+  - "./tools/my_tools.py"  # defines: read_file (custom implementation)
+```
+
+**Exposed tools:**
+- `read_file` (custom tool)
+- `filesystem.read_file` (upstream tool, auto-prefixed)
+- `write_file` (upstream tool, no conflict)
+
+Custom tools always keep their original name. Conflicting upstream tools are auto-prefixed.
+
+### Calling prefixed tools from custom tools
+
+When calling upstream tools from custom tools, use the **original** tool name (not the prefixed name):
+
+```python
+from mcp_remixer import tool, UpstreamClient
+
+@tool(description="Read and process a file")
+async def process_file(path: str, upstream: UpstreamClient):
+    # Use original name "read_file", not "fs_read_file" or "filesystem.read_file"
+    result = await upstream.call_tool("read_file", {"path": path})
+    return result.content[0].text
+```
+
+The `UpstreamClient` routes the call to the correct upstream automatically.
 
 ---
 
