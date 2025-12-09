@@ -370,11 +370,10 @@ async def say_hello(name: str) -> str:
             # Verify streamablehttp_client was called with correct args
             # (read_timeout maps to sse_read_timeout in the SDK)
             mock_http_client.assert_called_once_with(
-                "https://api.example.com/mcp",
+                url="https://api.example.com/mcp",
                 headers={"Authorization": "Bearer test-token"},
                 timeout=30.0,
                 sse_read_timeout=300.0,
-                httpx_client=None,
             )
 
             # Verify tools were registered
@@ -390,7 +389,7 @@ async def say_hello(name: str) -> str:
 
     @pytest.mark.asyncio
     async def test_http_upstream_with_verify_ssl_false(self, mock_tools: list[Tool]):
-        """Verifies that verify_ssl=False creates a custom httpx client."""
+        """Verifies that verify_ssl=False passes httpx_client_factory to streamablehttp_client."""
         mock_session = AsyncMock()
         mock_session.list_tools.return_value = ListToolsResult(tools=mock_tools)
         mock_session.initialize = AsyncMock()
@@ -410,8 +409,7 @@ async def say_hello(name: str) -> str:
         )
 
         with patch("mcp_remixer.upstream.streamablehttp_client") as mock_http_client, \
-             patch("mcp_remixer.upstream.ClientSession") as mock_client_session, \
-             patch("httpx.AsyncClient") as mock_httpx_client:
+             patch("mcp_remixer.upstream.ClientSession") as mock_client_session:
 
             # Set up the mock context managers
             mock_cm = AsyncMock()
@@ -424,24 +422,32 @@ async def say_hello(name: str) -> str:
             mock_session_cm.__aexit__ = AsyncMock()
             mock_client_session.return_value = mock_session_cm
 
-            # Mock the httpx client
-            mock_httpx_instance = MagicMock()
-            mock_httpx_instance.aclose = AsyncMock()
-            mock_httpx_client.return_value = mock_httpx_instance
-
             server = MCPRemixerServer(config)
             await server.initialize()
 
-            # Verify httpx.AsyncClient was created with verify=False
-            mock_httpx_client.assert_called_once_with(verify=False)
+            # Verify streamablehttp_client was called with httpx_client_factory
+            mock_http_client.assert_called_once()
+            call_kwargs = mock_http_client.call_args.kwargs
+            assert call_kwargs["url"] == "https://self-signed.example.com/mcp"
+            assert call_kwargs["headers"] == {}
+            assert call_kwargs["timeout"] == 30.0
+            assert call_kwargs["sse_read_timeout"] == 300.0
+            assert "httpx_client_factory" in call_kwargs
 
-            # Verify streamablehttp_client was called with the custom client
-            mock_http_client.assert_called_once_with(
-                "https://self-signed.example.com/mcp",
-                headers={},
-                timeout=30.0,
-                sse_read_timeout=300.0,
-                httpx_client=mock_httpx_instance,
-            )
+            # Verify the factory creates clients with verify=False
+            factory = call_kwargs["httpx_client_factory"]
+            import httpx
+            with patch("httpx.AsyncClient") as mock_async_client:
+                mock_client_instance = MagicMock()
+                mock_async_client.return_value = mock_client_instance
+
+                # Call the factory to check it creates the client correctly
+                result = factory(headers={"test": "header"}, timeout=httpx.Timeout(10))
+                mock_async_client.assert_called_once_with(
+                    headers={"test": "header"},
+                    timeout=httpx.Timeout(10),
+                    auth=None,
+                    verify=False,
+                )
 
             await server.shutdown()

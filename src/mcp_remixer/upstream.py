@@ -69,7 +69,6 @@ class UpstreamConnection:
     _read_stream: Any = None
     _write_stream: Any = None
     _cm: Any = None  # Context manager for the connection
-    _httpx_client: Any = None  # Custom httpx client (for SSL bypass)
 
     @property
     def connected(self) -> bool:
@@ -169,18 +168,33 @@ class UpstreamManager:
 
     async def _connect_sse(self, conn: UpstreamConnection, config: SSEUpstreamConfig) -> None:
         """Establish an SSE connection to an upstream server."""
-        # Create custom httpx client if SSL verification is disabled
+        # Build kwargs for sse_client
+        client_kwargs: dict[str, Any] = {
+            "url": config.url,
+            "headers": config.headers,
+        }
+
+        # Create custom httpx client factory if SSL verification is disabled
         if not config.verify_ssl:
             import httpx
             logger.warning(f"SSL verification disabled for upstream '{config.name}'")
-            conn._httpx_client = httpx.AsyncClient(verify=False)
+
+            def insecure_client_factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout,
+                    auth=auth,
+                    verify=False,
+                )
+
+            client_kwargs["httpx_client_factory"] = insecure_client_factory
 
         # Create the SSE client
-        conn._cm = sse_client(
-            config.url,
-            headers=config.headers,
-            httpx_client=conn._httpx_client,
-        )
+        conn._cm = sse_client(**client_kwargs)
         streams = await conn._cm.__aenter__()
         conn._read_stream, conn._write_stream = streams
 
@@ -197,20 +211,35 @@ class UpstreamManager:
         """Establish an HTTP connection to an upstream server using Streamable HTTP."""
         logger.debug(f"Connecting to HTTP upstream '{config.name}' at {config.url}")
 
-        # Create custom httpx client if SSL verification is disabled
+        # Build kwargs for streamablehttp_client
+        client_kwargs: dict[str, Any] = {
+            "url": config.url,
+            "headers": config.headers,
+            "timeout": config.timeout,
+            "sse_read_timeout": config.read_timeout,
+        }
+
+        # Create custom httpx client factory if SSL verification is disabled
         if not config.verify_ssl:
             import httpx
             logger.warning(f"SSL verification disabled for upstream '{config.name}'")
-            conn._httpx_client = httpx.AsyncClient(verify=False)
+
+            def insecure_client_factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout,
+                    auth=auth,
+                    verify=False,
+                )
+
+            client_kwargs["httpx_client_factory"] = insecure_client_factory
 
         # Create the Streamable HTTP client
-        conn._cm = streamablehttp_client(
-            config.url,
-            headers=config.headers,
-            timeout=config.timeout,
-            sse_read_timeout=config.read_timeout,
-            httpx_client=conn._httpx_client,
-        )
+        conn._cm = streamablehttp_client(**client_kwargs)
         logger.debug(f"Opening HTTP connection to '{config.name}'...")
         streams = await conn._cm.__aenter__()
         # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
@@ -262,8 +291,6 @@ class UpstreamManager:
                     await conn.session.__aexit__(None, None, None)
                 if conn._cm:
                     await conn._cm.__aexit__(None, None, None)
-                if conn._httpx_client:
-                    await conn._httpx_client.aclose()
             except Exception as e:
                 logger.warning(f"Error disconnecting from '{conn.name}': {e}")
 
