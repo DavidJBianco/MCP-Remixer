@@ -3,7 +3,7 @@
 from mcp_remixer import tool, UpstreamClient
 
 
-@tool(description="Say hello to someone")
+@tool(name="remixer_hello", description="Say hello to someone")
 async def hello(name: str) -> str:
     """A simple greeting tool.
 
@@ -13,7 +13,7 @@ async def hello(name: str) -> str:
     return f"Hello, {name}! Welcome to mcp-remixer."
 
 
-@tool(description="Read a file and count its lines, words, and characters")
+@tool(name="remixer_word_count", description="Read a file and count its lines, words, and characters")
 async def word_count(path: str, upstream: UpstreamClient) -> dict:
     """Read a file using the upstream filesystem server and return statistics.
 
@@ -39,6 +39,7 @@ async def word_count(path: str, upstream: UpstreamClient) -> dict:
 
 
 @tool(
+    name="remixer_convert_case",
     description="Convert text to a specified case",
     parameters={
         "text": {"type": "string", "description": "The text to convert"},

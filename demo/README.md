@@ -53,30 +53,30 @@ When connected, you should see these tools:
 |------|--------|-------------|
 | `read_file` | filesystem upstream | Read file contents |
 | `list_directory` | filesystem upstream | List directory contents |
-| `hello` | custom | Say hello to someone |
-| `word_count` | custom | Count lines, words, and characters |
-| `convert_case` | custom | Convert text case (upper/lower/title) |
+| `remixer_hello` | custom | Say hello to someone |
+| `remixer_word_count` | custom | Count lines, words, and characters |
+| `remixer_convert_case` | custom | Convert text case (upper/lower/title) |
 
 Note: `write_file` is **hidden** and will not appear in the tool list.
 
 ## Custom Tools Explained
 
-### hello
+### remixer_hello
 
 A simple tool that takes a name and returns a greeting:
 
 ```python
-@tool(description="Say hello to someone")
+@tool(name="remixer_hello", description="Say hello to someone")
 async def hello(name: str) -> str:
     return f"Hello, {name}! Welcome to mcp-remixer."
 ```
 
-### word_count
+### remixer_word_count
 
 Demonstrates calling an upstream tool from a custom tool:
 
 ```python
-@tool(description="Read a file and count its lines, words, and characters")
+@tool(name="remixer_word_count", description="Read a file and count its lines, words, and characters")
 async def word_count(path: str, upstream: UpstreamClient) -> dict:
     # Call the upstream read_file tool
     result = await upstream.call_tool("read_file", {"path": path})
@@ -90,12 +90,13 @@ async def word_count(path: str, upstream: UpstreamClient) -> dict:
     }
 ```
 
-### convert_case
+### remixer_convert_case
 
 Demonstrates explicit schema definition with enum constraints:
 
 ```python
 @tool(
+    name="remixer_convert_case",
     description="Convert text to a specified case",
     parameters={
         "text": {"type": "string", "description": "The text to convert"},
