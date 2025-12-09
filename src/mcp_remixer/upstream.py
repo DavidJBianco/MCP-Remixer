@@ -105,6 +105,7 @@ class UpstreamManager:
             UpstreamError: If connection fails
         """
         conn = UpstreamConnection(name=config.name, config=config)
+        logger.debug(f"Attempting to connect to upstream '{config.name}' (transport: {config.transport})")
 
         try:
             if isinstance(config, StdioUpstreamConfig):
@@ -179,6 +180,7 @@ class UpstreamManager:
         self, conn: UpstreamConnection, config: HTTPUpstreamConfig
     ) -> None:
         """Establish an HTTP connection to an upstream server using Streamable HTTP."""
+        logger.debug(f"Connecting to HTTP upstream '{config.name}' at {config.url}")
         # Create the Streamable HTTP client
         conn._cm = streamablehttp_client(
             config.url,
@@ -186,16 +188,20 @@ class UpstreamManager:
             timeout=config.timeout,
             sse_read_timeout=config.read_timeout,
         )
+        logger.debug(f"Opening HTTP connection to '{config.name}'...")
         streams = await conn._cm.__aenter__()
         # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
         conn._read_stream, conn._write_stream, _ = streams
+        logger.debug(f"HTTP connection established for '{config.name}', creating session...")
 
         # Create session
         session_cm = ClientSession(conn._read_stream, conn._write_stream)
         conn.session = await session_cm.__aenter__()
 
         # Initialize the session
+        logger.debug(f"Initializing MCP session for '{config.name}'...")
         await conn.session.initialize()
+        logger.debug(f"MCP session initialized for '{config.name}'")
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
         """Connect to all configured upstreams.
