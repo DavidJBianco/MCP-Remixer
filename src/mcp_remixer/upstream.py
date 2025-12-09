@@ -178,7 +178,12 @@ class UpstreamManager:
         """
         # Connect to all upstreams concurrently
         tasks = [self.connect_upstream(config) for config in configs.values()]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Check for any UpstreamError exceptions (from required upstreams)
+        for result in results:
+            if isinstance(result, UpstreamError):
+                raise result
 
         # Check if all required upstreams connected
         for name, conn in self._connections.items():
