@@ -129,10 +129,13 @@ class UpstreamManager:
             else:
                 logger.warning(f"No session established for '{config.name}'")
 
-        except Exception as e:
+        except BaseException as e:
             import sys
             logger.error(f"Exception connecting to upstream '{config.name}': {type(e).__name__}: {e}")
             sys.stderr.flush()
+            # Re-raise CancelledError and other BaseExceptions that shouldn't be suppressed
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             if config.required:
                 raise UpstreamError(f"Failed to connect to required upstream '{config.name}': {e}")
             logger.warning(f"Failed to connect to optional upstream '{config.name}': {e}")
@@ -209,14 +212,19 @@ class UpstreamManager:
         logger.debug(f"Initializing MCP session for '{config.name}'...")
         import sys
         sys.stderr.flush()
+        init_completed = False
         try:
             await conn.session.initialize()
+            init_completed = True
             logger.debug(f"MCP session initialized successfully for '{config.name}'")
             sys.stderr.flush()
-        except Exception as init_error:
+        except BaseException as init_error:
             logger.error(f"Session initialization failed for '{config.name}': {type(init_error).__name__}: {init_error}")
             sys.stderr.flush()
             raise
+        finally:
+            logger.debug(f"Session init finally block for '{config.name}': completed={init_completed}")
+            sys.stderr.flush()
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
         """Connect to all configured upstreams.
