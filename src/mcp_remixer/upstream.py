@@ -12,9 +12,15 @@ from typing import TYPE_CHECKING, Any, Protocol
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import CallToolResult, Tool
 
-from mcp_remixer.config import SSEUpstreamConfig, StdioUpstreamConfig, UpstreamConfig
+from mcp_remixer.config import (
+    HTTPUpstreamConfig,
+    SSEUpstreamConfig,
+    StdioUpstreamConfig,
+    UpstreamConfig,
+)
 from mcp_remixer.exceptions import ToolHiddenError, ToolNotFoundError, UpstreamError
 
 if TYPE_CHECKING:
@@ -99,12 +105,15 @@ class UpstreamManager:
             UpstreamError: If connection fails
         """
         conn = UpstreamConnection(name=config.name, config=config)
+        logger.debug(f"Attempting to connect to upstream '{config.name}' (transport: {config.transport})")
 
         try:
             if isinstance(config, StdioUpstreamConfig):
                 await self._connect_stdio(conn, config)
             elif isinstance(config, SSEUpstreamConfig):
                 await self._connect_sse(conn, config)
+            elif isinstance(config, HTTPUpstreamConfig):
+                await self._connect_http(conn, config)
             else:
                 raise UpstreamError(f"Unknown transport type for upstream '{config.name}'")
 
@@ -116,10 +125,14 @@ class UpstreamManager:
                     f"Connected to upstream '{config.name}' with {len(conn.tools)} tools"
                 )
 
-        except Exception as e:
+        except BaseException as e:
+            logger.error(f"Failed to connect to upstream '{config.name}': {type(e).__name__}: {e}")
+            # Re-raise CancelledError and other BaseExceptions that shouldn't be suppressed
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             if config.required:
                 raise UpstreamError(f"Failed to connect to required upstream '{config.name}': {e}")
-            logger.warning(f"Failed to connect to optional upstream '{config.name}': {e}")
+            logger.warning(f"Continuing without optional upstream '{config.name}'")
             conn.session = None
             conn.tools = []
 
@@ -155,8 +168,33 @@ class UpstreamManager:
 
     async def _connect_sse(self, conn: UpstreamConnection, config: SSEUpstreamConfig) -> None:
         """Establish an SSE connection to an upstream server."""
+        # Build kwargs for sse_client
+        client_kwargs: dict[str, Any] = {
+            "url": config.url,
+            "headers": config.headers,
+        }
+
+        # Create custom httpx client factory if SSL verification is disabled
+        if not config.verify_ssl:
+            import httpx
+            logger.warning(f"SSL verification disabled for upstream '{config.name}'")
+
+            def insecure_client_factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout,
+                    auth=auth,
+                    verify=False,
+                )
+
+            client_kwargs["httpx_client_factory"] = insecure_client_factory
+
         # Create the SSE client
-        conn._cm = sse_client(config.url, headers=config.headers)
+        conn._cm = sse_client(**client_kwargs)
         streams = await conn._cm.__aenter__()
         conn._read_stream, conn._write_stream = streams
 
@@ -166,6 +204,56 @@ class UpstreamManager:
 
         # Initialize the session
         await conn.session.initialize()
+
+    async def _connect_http(
+        self, conn: UpstreamConnection, config: HTTPUpstreamConfig
+    ) -> None:
+        """Establish an HTTP connection to an upstream server using Streamable HTTP."""
+        logger.debug(f"Connecting to HTTP upstream '{config.name}' at {config.url}")
+
+        # Build kwargs for streamablehttp_client
+        client_kwargs: dict[str, Any] = {
+            "url": config.url,
+            "headers": config.headers,
+            "timeout": config.timeout,
+            "sse_read_timeout": config.read_timeout,
+        }
+
+        # Create custom httpx client factory if SSL verification is disabled
+        if not config.verify_ssl:
+            import httpx
+            logger.warning(f"SSL verification disabled for upstream '{config.name}'")
+
+            def insecure_client_factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout,
+                    auth=auth,
+                    verify=False,
+                )
+
+            client_kwargs["httpx_client_factory"] = insecure_client_factory
+
+        # Create the Streamable HTTP client
+        conn._cm = streamablehttp_client(**client_kwargs)
+        logger.debug(f"Opening HTTP connection to '{config.name}'...")
+        streams = await conn._cm.__aenter__()
+        # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
+        conn._read_stream, conn._write_stream, _ = streams
+        logger.debug(f"HTTP connection established for '{config.name}', creating session...")
+
+        # Create session
+        session_cm = ClientSession(conn._read_stream, conn._write_stream)
+        conn.session = await session_cm.__aenter__()
+
+        # Initialize the session
+        logger.debug(f"Initializing MCP session for '{config.name}'...")
+        await conn.session.initialize()
+        logger.debug(f"MCP session initialized for '{config.name}'")
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
         """Connect to all configured upstreams.
@@ -180,10 +268,14 @@ class UpstreamManager:
         tasks = [self.connect_upstream(config) for config in configs.values()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Check for any UpstreamError exceptions (from required upstreams)
+        # Check for any exceptions (from required upstreams)
         for result in results:
-            if isinstance(result, UpstreamError):
-                raise result
+            if isinstance(result, Exception):
+                logger.error(f"Upstream connection returned exception: {type(result).__name__}: {result}")
+                if isinstance(result, UpstreamError):
+                    raise result
+                # Re-raise other exceptions as UpstreamError
+                raise UpstreamError(f"Upstream connection failed: {result}")
 
         # Check if all required upstreams connected
         for name, conn in self._connections.items():

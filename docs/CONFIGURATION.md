@@ -27,6 +27,16 @@ upstreams:
     headers:
       Authorization: "Bearer ${API_TOKEN}"
 
+  cloud_service:
+    transport: http
+    url: "https://api.example.com/mcp"
+    headers:
+      Authorization: "Bearer ${CLOUD_API_TOKEN}"
+    timeout: 60
+    read_timeout: 600
+    required: true
+    tool_prefix: "cloud_"
+
 hidden:
   tools:
     - "filesystem.write_file"
@@ -93,6 +103,12 @@ upstreams:
       Authorization: "Bearer ${API_TOKEN}"
     required: false
     tool_prefix: ""
+
+  # Example with self-signed certificate
+  internal_sse:
+    transport: sse
+    url: "https://internal.example.com/mcp"
+    verify_ssl: false
 ```
 
 | Option | Type | Required | Default | Description |
@@ -100,6 +116,41 @@ upstreams:
 | `transport` | string | Yes | - | Must be `"sse"` |
 | `url` | string | Yes | - | SSE endpoint URL |
 | `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
+| `verify_ssl` | boolean | No | `true` | Verify SSL certificates. Set to `false` for self-signed certs |
+| `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
+| `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
+
+### HTTP Transport
+
+For remote MCP servers using the Streamable HTTP protocol. This is the modern HTTP-based transport for MCP that supports bidirectional streaming over HTTP.
+
+```yaml
+upstreams:
+  cloud_api:
+    transport: http
+    url: "https://api.example.com/mcp"
+    headers:
+      Authorization: "Bearer ${API_TOKEN}"
+    timeout: 30
+    read_timeout: 300
+    required: true
+    tool_prefix: "cloud_"
+
+  # Example with self-signed certificate
+  internal_server:
+    transport: http
+    url: "https://internal.example.com:8089/mcp"
+    verify_ssl: false  # Disable SSL verification for self-signed certs
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `transport` | string | Yes | - | Must be `"http"` |
+| `url` | string | Yes | - | HTTP/HTTPS endpoint URL |
+| `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
+| `timeout` | number | No | `30` | HTTP operation timeout in seconds |
+| `read_timeout` | number | No | `300` | Read timeout in seconds (how long to wait for server responses) |
+| `verify_ssl` | boolean | No | `true` | Verify SSL certificates. Set to `false` for self-signed certs |
 | `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
 | `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
 
