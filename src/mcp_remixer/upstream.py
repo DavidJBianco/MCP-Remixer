@@ -126,6 +126,7 @@ class UpstreamManager:
                 )
 
         except Exception as e:
+            logger.error(f"Exception connecting to upstream '{config.name}': {type(e).__name__}: {e}")
             if config.required:
                 raise UpstreamError(f"Failed to connect to required upstream '{config.name}': {e}")
             logger.warning(f"Failed to connect to optional upstream '{config.name}': {e}")
@@ -200,8 +201,12 @@ class UpstreamManager:
 
         # Initialize the session
         logger.debug(f"Initializing MCP session for '{config.name}'...")
-        await conn.session.initialize()
-        logger.debug(f"MCP session initialized for '{config.name}'")
+        try:
+            await conn.session.initialize()
+            logger.debug(f"MCP session initialized for '{config.name}'")
+        except Exception as init_error:
+            logger.error(f"Session initialization failed for '{config.name}': {init_error}")
+            raise
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
         """Connect to all configured upstreams.
@@ -216,10 +221,14 @@ class UpstreamManager:
         tasks = [self.connect_upstream(config) for config in configs.values()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Check for any UpstreamError exceptions (from required upstreams)
+        # Check for any exceptions (from required upstreams)
         for result in results:
-            if isinstance(result, UpstreamError):
-                raise result
+            if isinstance(result, Exception):
+                logger.error(f"Upstream connection returned exception: {type(result).__name__}: {result}")
+                if isinstance(result, UpstreamError):
+                    raise result
+                # Re-raise other exceptions as UpstreamError
+                raise UpstreamError(f"Upstream connection failed: {result}")
 
         # Check if all required upstreams connected
         for name, conn in self._connections.items():
