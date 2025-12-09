@@ -118,15 +118,21 @@ class UpstreamManager:
                 raise UpstreamError(f"Unknown transport type for upstream '{config.name}'")
 
             # Fetch tools from the upstream
+            logger.debug(f"Connection complete for '{config.name}', session={conn.session is not None}")
             if conn.session:
+                logger.debug(f"Fetching tools from '{config.name}'...")
                 result = await conn.session.list_tools()
                 conn.tools = list(result.tools)
                 logger.info(
                     f"Connected to upstream '{config.name}' with {len(conn.tools)} tools"
                 )
+            else:
+                logger.warning(f"No session established for '{config.name}'")
 
         except Exception as e:
+            import sys
             logger.error(f"Exception connecting to upstream '{config.name}': {type(e).__name__}: {e}")
+            sys.stderr.flush()
             if config.required:
                 raise UpstreamError(f"Failed to connect to required upstream '{config.name}': {e}")
             logger.warning(f"Failed to connect to optional upstream '{config.name}': {e}")
@@ -201,11 +207,15 @@ class UpstreamManager:
 
         # Initialize the session
         logger.debug(f"Initializing MCP session for '{config.name}'...")
+        import sys
+        sys.stderr.flush()
         try:
             await conn.session.initialize()
-            logger.debug(f"MCP session initialized for '{config.name}'")
+            logger.debug(f"MCP session initialized successfully for '{config.name}'")
+            sys.stderr.flush()
         except Exception as init_error:
-            logger.error(f"Session initialization failed for '{config.name}': {init_error}")
+            logger.error(f"Session initialization failed for '{config.name}': {type(init_error).__name__}: {init_error}")
+            sys.stderr.flush()
             raise
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
