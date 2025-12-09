@@ -1,5 +1,6 @@
 """Configuration loading and validation for mcp-remixer."""
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ import yaml
 from dotenv import load_dotenv
 
 from mcp_remixer.exceptions import ConfigError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -198,8 +201,13 @@ def load_config(config_path: Path) -> Config:
     config_dir = config_path.parent.resolve()
 
     # Load .env files (cwd first, then config dir - later takes precedence)
-    for env_file in _find_env_files(config_dir):
-        load_dotenv(env_file, override=True)
+    env_files = _find_env_files(config_dir)
+    if env_files:
+        for env_file in env_files:
+            logger.debug(f"Loading environment from: {env_file}")
+            load_dotenv(env_file, override=True)
+    else:
+        logger.debug("No .env files found")
 
     # Parse YAML
     try:
@@ -217,9 +225,11 @@ def load_config(config_path: Path) -> Config:
     if not isinstance(raw_upstreams, dict):
         raise ConfigError("'upstreams' must be a mapping")
 
+    logger.debug(f"Found {len(raw_upstreams)} upstream(s) in config")
     for name, upstream_data in raw_upstreams.items():
         if not isinstance(upstream_data, dict):
             raise ConfigError(f"Upstream '{name}' must be a mapping")
+        logger.debug(f"Parsing upstream '{name}' with transport '{upstream_data.get('transport')}'")
         upstreams[name] = _parse_upstream(name, upstream_data)
 
     # Parse hidden items
