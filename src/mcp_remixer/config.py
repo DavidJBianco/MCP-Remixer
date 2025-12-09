@@ -51,6 +51,7 @@ class HTTPUpstreamConfig:
     read_timeout: float = 300.0
     required: bool = False
     tool_prefix: str = ""
+    verify_ssl: bool = True
 
 
 UpstreamConfig = StdioUpstreamConfig | SSEUpstreamConfig | HTTPUpstreamConfig
@@ -158,6 +159,7 @@ def _parse_upstream(name: str, data: dict) -> UpstreamConfig:
             read_timeout=float(data.get("read_timeout", 300.0)),
             required=data.get("required", False),
             tool_prefix=data.get("tool_prefix", ""),
+            verify_ssl=data.get("verify_ssl", True),
         )
 
     else:

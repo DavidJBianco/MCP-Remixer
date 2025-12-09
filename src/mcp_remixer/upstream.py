@@ -69,6 +69,7 @@ class UpstreamConnection:
     _read_stream: Any = None
     _write_stream: Any = None
     _cm: Any = None  # Context manager for the connection
+    _httpx_client: Any = None  # Custom httpx client (for SSL bypass)
 
     @property
     def connected(self) -> bool:
@@ -118,27 +119,21 @@ class UpstreamManager:
                 raise UpstreamError(f"Unknown transport type for upstream '{config.name}'")
 
             # Fetch tools from the upstream
-            logger.debug(f"Connection complete for '{config.name}', session={conn.session is not None}")
             if conn.session:
-                logger.debug(f"Fetching tools from '{config.name}'...")
                 result = await conn.session.list_tools()
                 conn.tools = list(result.tools)
                 logger.info(
                     f"Connected to upstream '{config.name}' with {len(conn.tools)} tools"
                 )
-            else:
-                logger.warning(f"No session established for '{config.name}'")
 
         except BaseException as e:
-            import sys
-            logger.error(f"Exception connecting to upstream '{config.name}': {type(e).__name__}: {e}")
-            sys.stderr.flush()
+            logger.error(f"Failed to connect to upstream '{config.name}': {type(e).__name__}: {e}")
             # Re-raise CancelledError and other BaseExceptions that shouldn't be suppressed
             if isinstance(e, (KeyboardInterrupt, SystemExit)):
                 raise
             if config.required:
                 raise UpstreamError(f"Failed to connect to required upstream '{config.name}': {e}")
-            logger.warning(f"Failed to connect to optional upstream '{config.name}': {e}")
+            logger.warning(f"Continuing without optional upstream '{config.name}'")
             conn.session = None
             conn.tools = []
 
@@ -191,12 +186,20 @@ class UpstreamManager:
     ) -> None:
         """Establish an HTTP connection to an upstream server using Streamable HTTP."""
         logger.debug(f"Connecting to HTTP upstream '{config.name}' at {config.url}")
+
+        # Create custom httpx client if SSL verification is disabled
+        if not config.verify_ssl:
+            import httpx
+            logger.warning(f"SSL verification disabled for upstream '{config.name}'")
+            conn._httpx_client = httpx.AsyncClient(verify=False)
+
         # Create the Streamable HTTP client
         conn._cm = streamablehttp_client(
             config.url,
             headers=config.headers,
             timeout=config.timeout,
             sse_read_timeout=config.read_timeout,
+            httpx_client=conn._httpx_client,
         )
         logger.debug(f"Opening HTTP connection to '{config.name}'...")
         streams = await conn._cm.__aenter__()
@@ -210,21 +213,8 @@ class UpstreamManager:
 
         # Initialize the session
         logger.debug(f"Initializing MCP session for '{config.name}'...")
-        import sys
-        sys.stderr.flush()
-        init_completed = False
-        try:
-            await conn.session.initialize()
-            init_completed = True
-            logger.debug(f"MCP session initialized successfully for '{config.name}'")
-            sys.stderr.flush()
-        except BaseException as init_error:
-            logger.error(f"Session initialization failed for '{config.name}': {type(init_error).__name__}: {init_error}")
-            sys.stderr.flush()
-            raise
-        finally:
-            logger.debug(f"Session init finally block for '{config.name}': completed={init_completed}")
-            sys.stderr.flush()
+        await conn.session.initialize()
+        logger.debug(f"MCP session initialized for '{config.name}'")
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
         """Connect to all configured upstreams.
@@ -262,6 +252,8 @@ class UpstreamManager:
                     await conn.session.__aexit__(None, None, None)
                 if conn._cm:
                     await conn._cm.__aexit__(None, None, None)
+                if conn._httpx_client:
+                    await conn._httpx_client.aclose()
             except Exception as e:
                 logger.warning(f"Error disconnecting from '{conn.name}': {e}")
 

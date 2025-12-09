@@ -128,6 +128,12 @@ upstreams:
     read_timeout: 300
     required: true
     tool_prefix: "cloud_"
+
+  # Example with self-signed certificate
+  internal_server:
+    transport: http
+    url: "https://internal.example.com:8089/mcp"
+    verify_ssl: false  # Disable SSL verification for self-signed certs
 ```
 
 | Option | Type | Required | Default | Description |
@@ -137,6 +143,7 @@ upstreams:
 | `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
 | `timeout` | number | No | `30` | HTTP operation timeout in seconds |
 | `read_timeout` | number | No | `300` | Read timeout in seconds (how long to wait for server responses) |
+| `verify_ssl` | boolean | No | `true` | Verify SSL certificates. Set to `false` for self-signed certs |
 | `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
 | `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
 

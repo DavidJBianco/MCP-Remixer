@@ -398,3 +398,38 @@ upstreams:
         assert isinstance(upstream, HTTPUpstreamConfig)
         assert upstream.url == "https://api.example.com/mcp"
         assert upstream.headers["Authorization"] == "Bearer secret-token"
+
+    def test_http_verify_ssl_defaults_to_true(self, tmp_path: Path):
+        """verify_ssl defaults to True for HTTP upstreams."""
+        config_content = """
+upstreams:
+  cloud:
+    transport: http
+    url: https://api.example.com/mcp
+"""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(config_content)
+
+        config = load_config(config_path)
+
+        upstream = config.upstreams["cloud"]
+        assert isinstance(upstream, HTTPUpstreamConfig)
+        assert upstream.verify_ssl is True
+
+    def test_http_verify_ssl_can_be_disabled(self, tmp_path: Path):
+        """verify_ssl can be set to false for HTTP upstreams."""
+        config_content = """
+upstreams:
+  insecure:
+    transport: http
+    url: https://self-signed.example.com/mcp
+    verify_ssl: false
+"""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(config_content)
+
+        config = load_config(config_path)
+
+        upstream = config.upstreams["insecure"]
+        assert isinstance(upstream, HTTPUpstreamConfig)
+        assert upstream.verify_ssl is False
