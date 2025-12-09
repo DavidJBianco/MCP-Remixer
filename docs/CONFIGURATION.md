@@ -103,6 +103,12 @@ upstreams:
       Authorization: "Bearer ${API_TOKEN}"
     required: false
     tool_prefix: ""
+
+  # Example with self-signed certificate
+  internal_sse:
+    transport: sse
+    url: "https://internal.example.com/mcp"
+    verify_ssl: false
 ```
 
 | Option | Type | Required | Default | Description |
@@ -110,6 +116,7 @@ upstreams:
 | `transport` | string | Yes | - | Must be `"sse"` |
 | `url` | string | Yes | - | SSE endpoint URL |
 | `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
+| `verify_ssl` | boolean | No | `true` | Verify SSL certificates. Set to `false` for self-signed certs |
 | `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
 | `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
 

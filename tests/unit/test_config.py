@@ -433,3 +433,38 @@ upstreams:
         upstream = config.upstreams["insecure"]
         assert isinstance(upstream, HTTPUpstreamConfig)
         assert upstream.verify_ssl is False
+
+    def test_sse_verify_ssl_defaults_to_true(self, tmp_path: Path):
+        """verify_ssl defaults to True for SSE upstreams."""
+        config_content = """
+upstreams:
+  remote:
+    transport: sse
+    url: https://api.example.com/mcp
+"""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(config_content)
+
+        config = load_config(config_path)
+
+        upstream = config.upstreams["remote"]
+        assert isinstance(upstream, SSEUpstreamConfig)
+        assert upstream.verify_ssl is True
+
+    def test_sse_verify_ssl_can_be_disabled(self, tmp_path: Path):
+        """verify_ssl can be set to false for SSE upstreams."""
+        config_content = """
+upstreams:
+  insecure_sse:
+    transport: sse
+    url: https://self-signed.example.com/mcp
+    verify_ssl: false
+"""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(config_content)
+
+        config = load_config(config_path)
+
+        upstream = config.upstreams["insecure_sse"]
+        assert isinstance(upstream, SSEUpstreamConfig)
+        assert upstream.verify_ssl is False

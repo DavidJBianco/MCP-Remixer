@@ -169,8 +169,18 @@ class UpstreamManager:
 
     async def _connect_sse(self, conn: UpstreamConnection, config: SSEUpstreamConfig) -> None:
         """Establish an SSE connection to an upstream server."""
+        # Create custom httpx client if SSL verification is disabled
+        if not config.verify_ssl:
+            import httpx
+            logger.warning(f"SSL verification disabled for upstream '{config.name}'")
+            conn._httpx_client = httpx.AsyncClient(verify=False)
+
         # Create the SSE client
-        conn._cm = sse_client(config.url, headers=config.headers)
+        conn._cm = sse_client(
+            config.url,
+            headers=config.headers,
+            httpx_client=conn._httpx_client,
+        )
         streams = await conn._cm.__aenter__()
         conn._read_stream, conn._write_stream = streams
 

@@ -37,6 +37,7 @@ class SSEUpstreamConfig:
     headers: dict[str, str] = field(default_factory=dict)
     required: bool = False
     tool_prefix: str = ""
+    verify_ssl: bool = True
 
 
 @dataclass
@@ -143,6 +144,7 @@ def _parse_upstream(name: str, data: dict) -> UpstreamConfig:
             headers=data.get("headers", {}),
             required=data.get("required", False),
             tool_prefix=data.get("tool_prefix", ""),
+            verify_ssl=data.get("verify_ssl", True),
         )
 
     elif transport == "http":
