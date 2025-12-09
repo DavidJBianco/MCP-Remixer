@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import Tool, ListToolsResult
 
-from mcp_remixer.config import Config, HiddenConfig, StdioUpstreamConfig, StreamableHTTPUpstreamConfig
+from mcp_remixer.config import Config, HiddenConfig, StdioUpstreamConfig, HTTPUpstreamConfig
 from mcp_remixer.server import MCPRemixerServer
 from mcp_remixer.upstream import UpstreamManager
 
@@ -327,17 +327,17 @@ async def say_hello(name: str) -> str:
                 await server.initialize()
 
     @pytest.mark.asyncio
-    async def test_streamable_http_upstream_tools_are_registered(self, mock_tools: list[Tool]):
-        """Verifies that tools from a Streamable HTTP upstream are registered."""
+    async def test_http_upstream_tools_are_registered(self, mock_tools: list[Tool]):
+        """Verifies that tools from an HTTP upstream are registered."""
         mock_session = AsyncMock()
         mock_session.list_tools.return_value = ListToolsResult(tools=mock_tools)
         mock_session.initialize = AsyncMock()
 
         config = Config(
             upstreams={
-                "cloud_api": StreamableHTTPUpstreamConfig(
+                "cloud_api": HTTPUpstreamConfig(
                     name="cloud_api",
-                    transport="streamable_http",
+                    transport="http",
                     url="https://api.example.com/mcp",
                     headers={"Authorization": "Bearer test-token"},
                     timeout=30.0,

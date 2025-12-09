@@ -8,7 +8,7 @@ from mcp_remixer.config import (
     Config,
     StdioUpstreamConfig,
     SSEUpstreamConfig,
-    StreamableHTTPUpstreamConfig,
+    HTTPUpstreamConfig,
     load_config,
     _expand_env_vars,
 )
@@ -319,12 +319,12 @@ upstreams:
         assert config.hidden.tools == []
         assert config.custom_tools == []
 
-    def test_load_streamable_http_upstream(self, tmp_path: Path):
-        """Loads a Streamable HTTP upstream configuration."""
+    def test_load_http_upstream(self, tmp_path: Path):
+        """Loads an HTTP upstream configuration."""
         config_content = """
 upstreams:
   cloud:
-    transport: streamable_http
+    transport: http
     url: https://api.example.com/mcp
     headers:
       Authorization: Bearer token
@@ -336,19 +336,19 @@ upstreams:
 
         assert "cloud" in config.upstreams
         upstream = config.upstreams["cloud"]
-        assert isinstance(upstream, StreamableHTTPUpstreamConfig)
+        assert isinstance(upstream, HTTPUpstreamConfig)
         assert upstream.url == "https://api.example.com/mcp"
         assert upstream.headers == {"Authorization": "Bearer token"}
         # Check defaults
         assert upstream.timeout == 30.0
         assert upstream.sse_read_timeout == 300.0
 
-    def test_load_streamable_http_with_custom_timeouts(self, tmp_path: Path):
-        """Loads Streamable HTTP config with custom timeout values."""
+    def test_load_http_with_custom_timeouts(self, tmp_path: Path):
+        """Loads HTTP config with custom timeout values."""
         config_content = """
 upstreams:
   cloud:
-    transport: streamable_http
+    transport: http
     url: https://api.example.com/mcp
     timeout: 60
     sse_read_timeout: 600
@@ -359,16 +359,16 @@ upstreams:
         config = load_config(config_path)
 
         upstream = config.upstreams["cloud"]
-        assert isinstance(upstream, StreamableHTTPUpstreamConfig)
+        assert isinstance(upstream, HTTPUpstreamConfig)
         assert upstream.timeout == 60.0
         assert upstream.sse_read_timeout == 600.0
 
-    def test_missing_url_for_streamable_http_raises_error(self, tmp_path: Path):
-        """Raises error when streamable_http transport missing URL."""
+    def test_missing_url_for_http_raises_error(self, tmp_path: Path):
+        """Raises error when http transport missing URL."""
         config_content = """
 upstreams:
   test:
-    transport: streamable_http
+    transport: http
 """
         config_path = tmp_path / "config.yaml"
         config_path.write_text(config_content)
@@ -377,14 +377,14 @@ upstreams:
             load_config(config_path)
         assert "url" in str(exc_info.value)
 
-    def test_env_var_expansion_in_streamable_http(self, tmp_path: Path, monkeypatch):
-        """Expands environment variables in streamable_http config."""
+    def test_env_var_expansion_in_http(self, tmp_path: Path, monkeypatch):
+        """Expands environment variables in http config."""
         monkeypatch.setenv("API_TOKEN", "secret-token")
         monkeypatch.setenv("API_URL", "https://api.example.com/mcp")
         config_content = """
 upstreams:
   cloud:
-    transport: streamable_http
+    transport: http
     url: ${API_URL}
     headers:
       Authorization: Bearer ${API_TOKEN}
@@ -395,6 +395,6 @@ upstreams:
         config = load_config(config_path)
 
         upstream = config.upstreams["cloud"]
-        assert isinstance(upstream, StreamableHTTPUpstreamConfig)
+        assert isinstance(upstream, HTTPUpstreamConfig)
         assert upstream.url == "https://api.example.com/mcp"
         assert upstream.headers["Authorization"] == "Bearer secret-token"

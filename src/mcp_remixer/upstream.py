@@ -16,9 +16,9 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import CallToolResult, Tool
 
 from mcp_remixer.config import (
+    HTTPUpstreamConfig,
     SSEUpstreamConfig,
     StdioUpstreamConfig,
-    StreamableHTTPUpstreamConfig,
     UpstreamConfig,
 )
 from mcp_remixer.exceptions import ToolHiddenError, ToolNotFoundError, UpstreamError
@@ -111,8 +111,8 @@ class UpstreamManager:
                 await self._connect_stdio(conn, config)
             elif isinstance(config, SSEUpstreamConfig):
                 await self._connect_sse(conn, config)
-            elif isinstance(config, StreamableHTTPUpstreamConfig):
-                await self._connect_streamable_http(conn, config)
+            elif isinstance(config, HTTPUpstreamConfig):
+                await self._connect_http(conn, config)
             else:
                 raise UpstreamError(f"Unknown transport type for upstream '{config.name}'")
 
@@ -175,10 +175,10 @@ class UpstreamManager:
         # Initialize the session
         await conn.session.initialize()
 
-    async def _connect_streamable_http(
-        self, conn: UpstreamConnection, config: StreamableHTTPUpstreamConfig
+    async def _connect_http(
+        self, conn: UpstreamConnection, config: HTTPUpstreamConfig
     ) -> None:
-        """Establish a Streamable HTTP connection to an upstream server."""
+        """Establish an HTTP connection to an upstream server using Streamable HTTP."""
         # Create the Streamable HTTP client
         conn._cm = streamablehttp_client(
             config.url,

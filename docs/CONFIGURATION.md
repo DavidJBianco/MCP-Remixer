@@ -28,7 +28,7 @@ upstreams:
       Authorization: "Bearer ${API_TOKEN}"
 
   cloud_service:
-    transport: streamable_http
+    transport: http
     url: "https://api.example.com/mcp"
     headers:
       Authorization: "Bearer ${CLOUD_API_TOKEN}"
@@ -113,14 +113,14 @@ upstreams:
 | `required` | boolean | No | `false` | If true, proxy fails to start if connection fails |
 | `tool_prefix` | string | No | `""` | Prefix added to all tools from this upstream |
 
-### Streamable HTTP Transport
+### HTTP Transport
 
 For remote MCP servers using the Streamable HTTP protocol. This is the modern HTTP-based transport for MCP that supports bidirectional streaming over HTTP.
 
 ```yaml
 upstreams:
   cloud_api:
-    transport: streamable_http
+    transport: http
     url: "https://api.example.com/mcp"
     headers:
       Authorization: "Bearer ${API_TOKEN}"
@@ -132,7 +132,7 @@ upstreams:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `transport` | string | Yes | - | Must be `"streamable_http"` |
+| `transport` | string | Yes | - | Must be `"http"` |
 | `url` | string | Yes | - | HTTP/HTTPS endpoint URL |
 | `headers` | object | No | `{}` | HTTP headers (supports `${VAR}` expansion) |
 | `timeout` | number | No | `30` | HTTP operation timeout in seconds |
