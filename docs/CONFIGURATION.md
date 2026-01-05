@@ -47,6 +47,12 @@ hidden:
 custom_tools:
   - "./tools/summarize.py"
   - "./tools/validators.py"
+
+audit:
+  enabled: true
+  log_file: ./audit.jsonl
+  truncate: true
+  max_content_length: 1024
 ```
 
 ---
@@ -58,6 +64,7 @@ custom_tools:
 | `upstreams` | object | Yes | Map of upstream server configurations |
 | `hidden` | object | No | Items to hide from clients |
 | `custom_tools` | list | No | Paths to Python modules with custom tools |
+| `audit` | object | No | Audit logging configuration |
 
 ---
 
@@ -337,6 +344,141 @@ Example `.env` file:
 API_TOKEN=secret-token-12345
 MCP_SERVER_URL=http://localhost:8080/mcp
 ```
+
+---
+
+## Audit Logging
+
+Log all MCP protocol transactions (requests, responses, notifications, errors) to a JSON lines file for compliance, debugging, or analysis.
+
+### Configuration
+
+```yaml
+audit:
+  enabled: true
+  log_file: ./audit.jsonl
+  truncate: true
+  max_content_length: 1024
+  log_requests: true
+  log_responses: true
+  log_notifications: true
+  log_errors: true
+  pretty_print: false
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | boolean | No | `false` | Enable audit logging |
+| `log_file` | string | Yes* | - | Path to the audit log file. *Required when `enabled` is `true` |
+| `truncate` | boolean | No | `false` | Truncate large fields to prevent unbounded log growth |
+| `max_content_length` | integer | No | `1024` | Maximum bytes per field when truncating (only used if `truncate` is `true`) |
+| `truncation_marker` | string | No | `"...[TRUNCATED]"` | String appended to truncated content |
+| `log_requests` | boolean | No | `true` | Log inbound requests |
+| `log_responses` | boolean | No | `true` | Log outbound responses |
+| `log_notifications` | boolean | No | `true` | Log notifications |
+| `log_errors` | boolean | No | `true` | Log error responses |
+| `pretty_print` | boolean | No | `false` | Pretty-print JSON (for debugging) |
+
+### Best Practice
+
+**Recommended**: Enable truncation with an explicit `max_content_length` to prevent unbounded log growth from large tool responses:
+
+```yaml
+audit:
+  enabled: true
+  log_file: /var/log/mcp-remixer/audit.jsonl
+  truncate: true
+  max_content_length: 4096
+```
+
+### Log Entry Format
+
+Each line in the log file is a JSON object:
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.200Z",
+  "direction": "outbound",
+  "message_type": "response",
+  "method": null,
+  "identifiers": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "request_id": 42,
+    "progress_token": null,
+    "client_name": "claude-desktop",
+    "client_version": "1.0.0"
+  },
+  "content": {
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "File contents here...[TRUNCATED]",
+          "logged_length": 1024,
+          "original_length": 15234,
+          "truncated": true
+        }
+      ],
+      "isError": false
+    }
+  },
+  "isTruncated": true,
+  "processing_time_ms": 45.2,
+  "error_code": null
+}
+```
+
+### Log Entry Fields
+
+| Field | Description |
+|-------|-------------|
+| `timestamp` | ISO 8601 timestamp |
+| `direction` | `"inbound"` (from client) or `"outbound"` (to client) |
+| `message_type` | `"request"`, `"response"`, `"notification"`, or `"error"` |
+| `method` | The RPC method name (e.g., `"tools/call"`, `"initialize"`) |
+| `identifiers.session_id` | Globally unique UUID for this proxy session (same across all entries in one session) |
+| `identifiers.request_id` | JSON-RPC request ID for correlation (client-generated, unique within session) |
+| `identifiers.progress_token` | Optional progress token from request metadata |
+| `identifiers.client_name` | Client name from initialization |
+| `identifiers.client_version` | Client version from initialization |
+| `content` | The message content (potentially truncated) |
+| `isTruncated` | `true` if any field was truncated |
+| `processing_time_ms` | Response latency in milliseconds (for responses) |
+| `error_code` | JSON-RPC error code (for error responses) |
+
+### Truncation Behavior
+
+When `truncate: true`:
+
+- Only string values in fields named `arguments`, `data`, or `text` are truncated
+- Truncation is per-field, not per-message
+- Truncated fields include inline metadata:
+  - `logged_length`: actual bytes logged
+  - `original_length`: original size before truncation
+  - `truncated`: `true`
+- The top-level `isTruncated` field is `true` if any field was truncated
+
+### Log Rotation
+
+mcp-remixer does not implement log rotation. Use external tools like `logrotate`:
+
+```
+/var/log/mcp-remixer/audit.jsonl {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+```
+
+### Performance Considerations
+
+- Audit logging adds minimal overhead as writes are async and flushed per-entry
+- Large `max_content_length` values increase disk usage
+- Consider enabling `truncate` for production workloads
 
 ---
 

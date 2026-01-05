@@ -9,6 +9,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool
 
+from mcp_remixer.audit import AuditLogger, AuditedReceiveStream, AuditedSendStream
 from mcp_remixer.config import Config, load_config
 from mcp_remixer.loader import load_custom_tools
 from mcp_remixer.registry import ToolRegistry
@@ -25,6 +26,11 @@ class MCPRemixerServer:
         self._server = Server("mcp-remixer")
         self._upstream_manager = UpstreamManager()
         self._registry = ToolRegistry(config.hidden, self._upstream_manager)
+
+        # Set up audit logging if enabled
+        self._audit_logger: AuditLogger | None = None
+        if config.audit.enabled:
+            self._audit_logger = AuditLogger(config.audit)
 
         # Set up the MCP server handlers
         self._setup_handlers()
@@ -83,6 +89,31 @@ class MCPRemixerServer:
         logger.info("Shutting down server...")
         await self._upstream_manager.disconnect_all()
 
+    async def _run_with_streams(self, read_stream, write_stream) -> None:
+        """Run server with any transport's streams.
+
+        This method applies audit wrapping if enabled and runs the MCP server.
+        It's transport-agnostic and can be used with stdio, SSE, or HTTP streams.
+
+        Args:
+            read_stream: The stream to read messages from.
+            write_stream: The stream to write messages to.
+        """
+        if self._audit_logger:
+            self._audit_logger.start()
+            read_stream = AuditedReceiveStream(read_stream, self._audit_logger)
+            write_stream = AuditedSendStream(write_stream, self._audit_logger)
+
+        try:
+            await self._server.run(
+                read_stream,
+                write_stream,
+                self._server.create_initialization_options(),
+            )
+        finally:
+            if self._audit_logger:
+                self._audit_logger.stop()
+
     async def run_stdio(self) -> None:
         """Run the server using stdio transport."""
         try:
@@ -90,11 +121,7 @@ class MCPRemixerServer:
 
             logger.info("Starting stdio server...")
             async with stdio_server() as (read_stream, write_stream):
-                await self._server.run(
-                    read_stream,
-                    write_stream,
-                    self._server.create_initialization_options(),
-                )
+                await self._run_with_streams(read_stream, write_stream)
         finally:
             await self.shutdown()
 

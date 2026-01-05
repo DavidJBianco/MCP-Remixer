@@ -189,6 +189,28 @@ async def count_lines(path: str, upstream: UpstreamClient):
     return f"File {path} has {line_count} lines"
 ```
 
+## 10. Enable audit logging
+
+Track all MCP transactions for debugging or compliance:
+
+```yaml
+upstreams:
+  filesystem:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+audit:
+  enabled: true
+  log_file: ./audit.jsonl
+  truncate: true  # Recommended: truncate large responses
+  max_content_length: 1024
+```
+
+Each client session gets a unique `session_id` (UUID), making it easy to trace requests across multiple concurrent clients.
+
+See [Audit Logging](docs/CONFIGURATION.md#audit-logging) for full details.
+
 ## Next Steps
 
 - [Configuration Reference](docs/CONFIGURATION.md) - All config options

@@ -11,6 +11,7 @@ A proxy for MCP servers that lets you add custom tools, hide existing ones, and 
 - **Chain tools** - Custom tools can call upstream tools
 - **Graceful degradation** - Optional upstreams won't block startup
 - **Environment variable support** - Use `.env` files and `${VAR}` expansion
+- **Audit logging** - Log all MCP transactions to JSON files for compliance and debugging
 
 ## Installation
 
@@ -39,6 +40,13 @@ hidden:
 
 custom_tools:
   - "./tools/my_tools.py"
+
+# Optional: Enable audit logging
+audit:
+  enabled: true
+  log_file: ./audit.jsonl
+  truncate: true  # Truncate large fields (recommended)
+  max_content_length: 1024  # Per-field limit in bytes
 ```
 
 ```python
