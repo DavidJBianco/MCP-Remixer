@@ -68,7 +68,11 @@ class UpstreamConnection:
     tools: list[Tool] | None = None
     _read_stream: Any = None
     _write_stream: Any = None
-    _cm: Any = None  # Context manager for the connection
+    _cm: Any = None  # Context manager for the connection (STDIO only)
+    _task: asyncio.Task | None = None  # Background task for HTTP/SSE connections
+    _ready_event: asyncio.Event | None = None  # Signals when connection is ready
+    _shutdown_event: asyncio.Event | None = None  # Signals when to shutdown
+    _error: Exception | None = None  # Stores any error from the connection task
 
     @property
     def connected(self) -> bool:
@@ -166,50 +170,15 @@ class UpstreamManager:
         # Initialize the session
         await conn.session.initialize()
 
-    async def _connect_sse(self, conn: UpstreamConnection, config: SSEUpstreamConfig) -> None:
-        """Establish an SSE connection to an upstream server."""
-        # Build kwargs for sse_client
-        client_kwargs: dict[str, Any] = {
-            "url": config.url,
-            "headers": config.headers,
-        }
-
-        # Create custom httpx client factory if SSL verification is disabled
-        if not config.verify_ssl:
-            import httpx
-            logger.warning(f"SSL verification disabled for upstream '{config.name}'")
-
-            def insecure_client_factory(
-                headers: dict[str, str] | None = None,
-                timeout: httpx.Timeout | None = None,
-                auth: httpx.Auth | None = None,
-            ) -> httpx.AsyncClient:
-                return httpx.AsyncClient(
-                    headers=headers,
-                    timeout=timeout,
-                    auth=auth,
-                    verify=False,
-                )
-
-            client_kwargs["httpx_client_factory"] = insecure_client_factory
-
-        # Create the SSE client
-        conn._cm = sse_client(**client_kwargs)
-        streams = await conn._cm.__aenter__()
-        conn._read_stream, conn._write_stream = streams
-
-        # Create session
-        session_cm = ClientSession(conn._read_stream, conn._write_stream)
-        conn.session = await session_cm.__aenter__()
-
-        # Initialize the session
-        await conn.session.initialize()
-
-    async def _connect_http(
+    async def _run_http_connection(
         self, conn: UpstreamConnection, config: HTTPUpstreamConfig
     ) -> None:
-        """Establish an HTTP connection to an upstream server using Streamable HTTP."""
-        logger.debug(f"Connecting to HTTP upstream '{config.name}' at {config.url}")
+        """Run HTTP connection lifecycle in a dedicated task.
+
+        This method runs in its own task and owns the entire connection lifecycle.
+        It enters the context managers, signals ready, waits for shutdown, then exits cleanly.
+        """
+        logger.debug(f"HTTP connection task started for '{config.name}'")
 
         # Build kwargs for streamablehttp_client
         client_kwargs: dict[str, Any] = {
@@ -222,6 +191,7 @@ class UpstreamManager:
         # Create custom httpx client factory if SSL verification is disabled
         if not config.verify_ssl:
             import httpx
+
             logger.warning(f"SSL verification disabled for upstream '{config.name}'")
 
             def insecure_client_factory(
@@ -238,22 +208,145 @@ class UpstreamManager:
 
             client_kwargs["httpx_client_factory"] = insecure_client_factory
 
-        # Create the Streamable HTTP client
-        conn._cm = streamablehttp_client(**client_kwargs)
-        logger.debug(f"Opening HTTP connection to '{config.name}'...")
-        streams = await conn._cm.__aenter__()
-        # streamablehttp_client returns 3 values: (read_stream, write_stream, get_session_id)
-        conn._read_stream, conn._write_stream, _ = streams
-        logger.debug(f"HTTP connection established for '{config.name}', creating session...")
+        try:
+            async with streamablehttp_client(**client_kwargs) as streams:
+                read_stream, write_stream, _ = streams
+                logger.debug(f"HTTP connection established for '{config.name}', creating session...")
 
-        # Create session
-        session_cm = ClientSession(conn._read_stream, conn._write_stream)
-        conn.session = await session_cm.__aenter__()
+                async with ClientSession(read_stream, write_stream) as session:
+                    conn.session = session
+                    logger.debug(f"Initializing MCP session for '{config.name}'...")
+                    await session.initialize()
+                    logger.debug(f"MCP session initialized for '{config.name}'")
 
-        # Initialize the session
-        logger.debug(f"Initializing MCP session for '{config.name}'...")
-        await conn.session.initialize()
-        logger.debug(f"MCP session initialized for '{config.name}'")
+                    # Signal that we're ready
+                    conn._ready_event.set()
+
+                    # Wait for shutdown signal
+                    await conn._shutdown_event.wait()
+                    logger.debug(f"HTTP connection task shutting down for '{config.name}'")
+
+            # Context managers exit here, in the same task that entered them
+            logger.debug(f"HTTP connection task completed for '{config.name}'")
+
+        except Exception as e:
+            # Store the error so it can be propagated to the caller
+            conn._error = e
+            conn._ready_event.set()  # Unblock anyone waiting for ready
+            raise
+
+    async def _run_sse_connection(
+        self, conn: UpstreamConnection, config: SSEUpstreamConfig
+    ) -> None:
+        """Run SSE connection lifecycle in a dedicated task.
+
+        This method runs in its own task and owns the entire connection lifecycle.
+        It enters the context managers, signals ready, waits for shutdown, then exits cleanly.
+        """
+        logger.debug(f"SSE connection task started for '{config.name}'")
+
+        # Build kwargs for sse_client
+        client_kwargs: dict[str, Any] = {
+            "url": config.url,
+            "headers": config.headers,
+        }
+
+        # Create custom httpx client factory if SSL verification is disabled
+        if not config.verify_ssl:
+            import httpx
+
+            logger.warning(f"SSL verification disabled for upstream '{config.name}'")
+
+            def insecure_client_factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout,
+                    auth=auth,
+                    verify=False,
+                )
+
+            client_kwargs["httpx_client_factory"] = insecure_client_factory
+
+        try:
+            async with sse_client(**client_kwargs) as streams:
+                read_stream, write_stream = streams
+                logger.debug(f"SSE connection established for '{config.name}', creating session...")
+
+                async with ClientSession(read_stream, write_stream) as session:
+                    conn.session = session
+                    logger.debug(f"Initializing MCP session for '{config.name}'...")
+                    await session.initialize()
+                    logger.debug(f"MCP session initialized for '{config.name}'")
+
+                    # Signal that we're ready
+                    conn._ready_event.set()
+
+                    # Wait for shutdown signal
+                    await conn._shutdown_event.wait()
+                    logger.debug(f"SSE connection task shutting down for '{config.name}'")
+
+            # Context managers exit here, in the same task that entered them
+            logger.debug(f"SSE connection task completed for '{config.name}'")
+
+        except Exception as e:
+            # Store the error so it can be propagated to the caller
+            conn._error = e
+            conn._ready_event.set()  # Unblock anyone waiting for ready
+            raise
+
+    async def _connect_sse(self, conn: UpstreamConnection, config: SSEUpstreamConfig) -> None:
+        """Establish an SSE connection to an upstream server.
+
+        Spawns a background task that owns the connection lifecycle.
+        """
+        logger.debug(f"Connecting to SSE upstream '{config.name}' at {config.url}")
+
+        # Set up events for task coordination
+        conn._ready_event = asyncio.Event()
+        conn._shutdown_event = asyncio.Event()
+
+        # Spawn the connection task
+        conn._task = asyncio.create_task(
+            self._run_sse_connection(conn, config),
+            name=f"sse-connection-{config.name}",
+        )
+
+        # Wait for connection to be ready
+        await conn._ready_event.wait()
+
+        # Check if the task failed during setup
+        if conn._error:
+            raise conn._error
+
+    async def _connect_http(
+        self, conn: UpstreamConnection, config: HTTPUpstreamConfig
+    ) -> None:
+        """Establish an HTTP connection to an upstream server using Streamable HTTP.
+
+        Spawns a background task that owns the connection lifecycle.
+        """
+        logger.debug(f"Connecting to HTTP upstream '{config.name}' at {config.url}")
+
+        # Set up events for task coordination
+        conn._ready_event = asyncio.Event()
+        conn._shutdown_event = asyncio.Event()
+
+        # Spawn the connection task
+        conn._task = asyncio.create_task(
+            self._run_http_connection(conn, config),
+            name=f"http-connection-{config.name}",
+        )
+
+        # Wait for connection to be ready
+        await conn._ready_event.wait()
+
+        # Check if the task failed during setup
+        if conn._error:
+            raise conn._error
 
     async def connect_all(self, configs: dict[str, UpstreamConfig]) -> None:
         """Connect to all configured upstreams.
@@ -286,11 +379,22 @@ class UpstreamManager:
         """Disconnect from all upstream servers."""
         for conn in self._connections.values():
             try:
-                if conn.session:
-                    # Close the session
-                    await conn.session.__aexit__(None, None, None)
-                if conn._cm:
-                    await conn._cm.__aexit__(None, None, None)
+                if conn._shutdown_event:
+                    # Task-managed connection (HTTP/SSE): signal shutdown
+                    logger.debug(f"Signaling shutdown for '{conn.name}'")
+                    conn._shutdown_event.set()
+
+                if conn._task:
+                    # Wait for the task to complete cleanup
+                    logger.debug(f"Waiting for connection task to complete for '{conn.name}'")
+                    await conn._task
+                    logger.debug(f"Connection task completed for '{conn.name}'")
+                else:
+                    # STDIO connection: direct cleanup (no task)
+                    if conn.session:
+                        await conn.session.__aexit__(None, None, None)
+                    if conn._cm:
+                        await conn._cm.__aexit__(None, None, None)
             except Exception as e:
                 logger.warning(f"Error disconnecting from '{conn.name}': {e}")
 
