@@ -16,3 +16,11 @@ hidden:
 
 # No custom tools
 custom_tools: []
+
+# Audit logging disabled for passthrough demo
+# Uncomment to enable:
+# audit:
+#   enabled: true
+#   log_file: ./audit.jsonl
+#   truncate: true
+#   max_content_length: 1024

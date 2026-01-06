@@ -15,3 +15,10 @@ hidden:
 
 custom_tools:
   - "./tools/custom_tools.py"
+
+# Audit logging - logs all MCP transactions to a JSON lines file
+audit:
+  enabled: true
+  log_file: ./audit.jsonl
+  truncate: true  # Recommended: truncate large fields to prevent unbounded log growth
+  max_content_length: 1024  # Per-field limit in bytes

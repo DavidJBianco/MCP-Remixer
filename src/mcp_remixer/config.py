@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from mcp_remixer.audit.config import AuditConfig
 from mcp_remixer.exceptions import ConfigError
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class Config:
     hidden: HiddenConfig = field(default_factory=HiddenConfig)
     custom_tools: list[Path] = field(default_factory=list)
     config_dir: Path = field(default_factory=lambda: Path.cwd())
+    audit: AuditConfig = field(default_factory=AuditConfig)
 
 
 def _expand_env_vars(value: str) -> str:
@@ -166,6 +168,61 @@ def _parse_upstream(name: str, data: dict) -> UpstreamConfig:
 
     else:
         raise ConfigError(f"Upstream '{name}' has invalid transport: '{transport}'")
+
+
+def _parse_audit(data: dict, config_dir: Path) -> AuditConfig:
+    """Parse audit logging configuration.
+
+    Args:
+        data: The raw audit configuration data.
+        config_dir: The configuration file directory for resolving relative paths.
+
+    Returns:
+        Parsed AuditConfig object.
+    """
+    enabled = data.get("enabled", False)
+    truncate = data.get("truncate", False)
+    max_content_length = data.get("max_content_length", 1024)
+
+    # Warn if max_content_length is set but truncate is false
+    if "max_content_length" in data and not truncate:
+        logger.warning(
+            "audit.max_content_length is set but audit.truncate is false; "
+            "max_content_length will be ignored"
+        )
+
+    # Parse log_file path
+    log_file = None
+    if "log_file" in data:
+        log_file_str = data["log_file"]
+        if isinstance(log_file_str, str):
+            # Expand environment variables
+            log_file_str = _expand_env_vars(log_file_str)
+            log_file = Path(log_file_str)
+            # Resolve relative paths against config directory
+            if not log_file.is_absolute():
+                log_file = config_dir / log_file
+            log_file = log_file.resolve()
+
+    # Validate: if enabled, log_file should be set
+    if enabled and not log_file:
+        logger.warning(
+            "audit.enabled is true but audit.log_file is not set; "
+            "audit logging will not work"
+        )
+
+    return AuditConfig(
+        enabled=enabled,
+        log_file=log_file,
+        truncate=truncate,
+        max_content_length=int(max_content_length),
+        truncation_marker=data.get("truncation_marker", "...[TRUNCATED]"),
+        log_requests=data.get("log_requests", True),
+        log_responses=data.get("log_responses", True),
+        log_notifications=data.get("log_notifications", True),
+        log_errors=data.get("log_errors", True),
+        pretty_print=data.get("pretty_print", False),
+    )
 
 
 def _find_env_files(config_dir: Path) -> list[Path]:
@@ -262,9 +319,17 @@ def load_config(config_path: Path) -> Config:
             path = config_dir / path
         custom_tools.append(path.resolve())
 
+    # Parse audit configuration
+    raw_audit = raw_config.get("audit", {})
+    if not isinstance(raw_audit, dict):
+        raise ConfigError("'audit' must be a mapping")
+
+    audit = _parse_audit(raw_audit, config_dir)
+
     return Config(
         upstreams=upstreams,
         hidden=hidden,
         custom_tools=custom_tools,
         config_dir=config_dir,
+        audit=audit,
     )
